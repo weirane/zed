@@ -1392,6 +1392,8 @@ impl CompletionsMenu {
             let mut filter_match_results = vec![];
             let mut label_match_results =
                 std::iter::repeat_n(None, label_match_candidates.len()).collect::<Box<[_]>>();
+            let mut filter_match_queries =
+                std::iter::repeat_n(None, label_match_candidates.len()).collect::<Box<[_]>>();
             for (query, match_candidates) in queries_and_candidates {
                 let smart_case = query.chars().any(|character| character.is_uppercase());
                 let filter_matches = fuzzy::match_strings(
@@ -1404,6 +1406,13 @@ impl CompletionsMenu {
                     background_executor.clone(),
                 )
                 .await;
+                for filter_match in &filter_matches {
+                    if let Some(filter_match_query) =
+                        filter_match_queries.get_mut(filter_match.candidate_id)
+                    {
+                        *filter_match_query = Some(query.clone());
+                    }
+                }
                 if query.is_empty() {
                     filter_match_results.extend(filter_matches);
                     continue;
@@ -1442,24 +1451,36 @@ impl CompletionsMenu {
                 }
                 filter_match_results.extend(filter_matches);
             }
-            CompletionMatchResults {
-                filter_matches: filter_match_results,
-                label_matches: label_match_results,
-            }
+            (
+                CompletionMatchResults {
+                    filter_matches: filter_match_results,
+                    label_matches: label_match_results,
+                },
+                filter_match_queries,
+            )
         });
 
         let completions = self.completions.clone();
         let sort_completions = self.sort_completions;
         let snippet_sort_order = self.snippet_sort_order;
         cx.foreground_executor().spawn(async move {
-            let mut results = matches_task.await;
+            let (mut results, filter_match_queries) = matches_task.await;
 
             let completions_ref = completions.borrow();
 
             if sort_completions {
+                // Completions with their own match start, like snippets, were
+                // filtered with the text from that start rather than `query`,
+                // so they must be sorted against that same text.
                 results.filter_matches = Self::sort_string_matches(
                     results.filter_matches,
-                    Some(&query), // used for non-snippets only
+                    |string_match| {
+                        let query = filter_match_queries
+                            .get(string_match.candidate_id)
+                            .and_then(Option::as_ref)
+                            .unwrap_or(&query);
+                        Some(query.as_str())
+                    },
                     snippet_sort_order,
                     &completions_ref,
                 );
@@ -1515,9 +1536,9 @@ impl CompletionsMenu {
         self.handle_selection_changed(provider.as_deref(), window, cx);
     }
 
-    pub fn sort_string_matches(
+    pub fn sort_string_matches<'query>(
         matches: Vec<StringMatch>,
-        query: Option<&str>,
+        query_for_match: impl Fn(&StringMatch) -> Option<&'query str>,
         snippet_sort_order: SnippetSortOrder,
         completions: &[Completion],
     ) -> Vec<StringMatch> {
@@ -1540,11 +1561,6 @@ impl CompletionsMenu {
             },
         }
 
-        let query_start_lower = query
-            .as_ref()
-            .and_then(|q| q.chars().next())
-            .and_then(|c| c.to_lowercase().next());
-
         if snippet_sort_order == SnippetSortOrder::None {
             matches
                 .retain(|string_match| !completions[string_match.candidate_id].is_snippet_kind());
@@ -1561,6 +1577,10 @@ impl CompletionsMenu {
             };
 
             let (sort_kind, sort_label) = completion.sort_key();
+            let query = query_for_match(string_match);
+            let query_start_lower = query
+                .and_then(|query| query.chars().next())
+                .and_then(|character| character.to_lowercase().next());
 
             let score = string_match.score;
             let sort_score = Reverse(OrderedFloat(score));
