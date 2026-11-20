@@ -18709,7 +18709,7 @@ async fn test_snippet_exact_case_prefix_sorts_first(cx: &mut TestAppContext) {
         })
     });
 
-    let test_cases: &[(&str, &[&str])] = &[("\\a", &["\\a", "\\A"]), ("\\A", &["\\A"])];
+    let test_cases: &[(&str, &[&str])] = &[("\\a", &["\\a", "\\A"]), ("\\A", &["\\A", "\\a"])];
     for &(input_to_simulate, expected_completions) in test_cases {
         cx.set_state("ˇ");
         for character in input_to_simulate.split("") {
