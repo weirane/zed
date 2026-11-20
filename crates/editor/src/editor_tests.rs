@@ -18682,6 +18682,66 @@ async fn test_snippet_with_multi_word_prefix(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
+async fn test_snippet_exact_case_prefix_sorts_first(cx: &mut TestAppContext) {
+    init_test(cx, |_| {});
+
+    let mut cx = EditorTestContext::new(cx).await;
+    cx.update_editor(|editor, _, cx| {
+        editor.project().unwrap().update(cx, |project, cx| {
+            project.snippets().update(cx, |snippets, _cx| {
+                let snippets_to_add = [("\\A", "𝔸"), ("\\a", "α")]
+                    .into_iter()
+                    .map(|(prefix, body)| {
+                        Arc::new(project::snippet_provider::Snippet {
+                            prefix: vec![prefix.to_string()],
+                            body: body.to_string(),
+                            description: None,
+                            name: body.to_string(),
+                        })
+                    })
+                    .collect();
+                snippets.add_snippet_for_test(
+                    None,
+                    PathBuf::from("test_snippets.json"),
+                    snippets_to_add,
+                );
+            });
+        })
+    });
+
+    for (input_to_simulate, expected_completions) in
+        [("\\a", ["\\a", "\\A"]), ("\\A", ["\\A", "\\a"])]
+    {
+        cx.set_state("ˇ");
+        for character in input_to_simulate.split("") {
+            cx.simulate_input(character);
+            cx.run_until_parked();
+        }
+
+        cx.update_editor(|editor, _, _| {
+            let Some(CodeContextMenu::Completions(context_menu)) = &*editor.context_menu.borrow()
+            else {
+                panic!("expected a completions menu for {input_to_simulate:?}");
+            };
+            let completions = context_menu
+                .entries
+                .borrow()
+                .iter()
+                .filter_map(|entry| {
+                    entry
+                        .as_match()
+                        .map(|string_match| string_match.string.clone())
+                })
+                .collect_vec();
+            assert_eq!(
+                completions, expected_completions,
+                "input = {input_to_simulate:?}"
+            );
+        });
+    }
+}
+
+#[gpui::test]
 async fn test_read_only_buffer_is_not_formatted_or_saved(cx: &mut TestAppContext) {
     init_test(cx, |_| {});
 

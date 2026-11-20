@@ -421,7 +421,7 @@ async fn test_sort_keeps_order_of_equal_keys(cx: &mut TestAppContext) {
 
     let sorted_matches = CompletionsMenu::sort_string_matches(
         matches,
-        Some(query),
+        |_| Some(query),
         SnippetSortOrder::default(),
         &completions,
     );
@@ -551,7 +551,7 @@ async fn filter_and_sort_matches(
     cx: &mut TestAppContext,
 ) -> Vec<StringMatch> {
     let matches = filter_matches(query, completions, cx).await;
-    CompletionsMenu::sort_string_matches(matches, Some(query), snippet_sort_order, completions)
+    CompletionsMenu::sort_string_matches(matches, |_| Some(query), snippet_sort_order, completions)
 }
 
 async fn filter_matches(
